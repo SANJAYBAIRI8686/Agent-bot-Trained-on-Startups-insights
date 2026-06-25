@@ -1,4 +1,4 @@
-# Personal Research Agent
+# Personal Research Assistant
 
 An intelligent, multi-agent Personal Research Assistant built using **Python**, **LangChain**, **LangGraph**, **FastAPI**, and **OpenAI / NVIDIA NIM**.
 
