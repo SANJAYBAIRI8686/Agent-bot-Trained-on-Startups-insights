@@ -9,12 +9,31 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Standard English stop words to filter out for better keyword matching relevance
+STOP_WORDS = {
+    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are", "aren't", "as", "at",
+    "be", "because", "been", "before", "being", "below", "between", "both", "but", "by", "can't", "cannot", "could",
+    "couldn't", "did", "didn't", "do", "does", "doesn't", "doing", "don't", "down", "during", "each", "few", "for",
+    "from", "further", "had", "hadn't", "has", "hasn't", "have", "haven't", "having", "he", "he'd", "he'll", "he's",
+    "her", "here", "here's", "hers", "herself", "him", "himself", "his", "how", "how's", "i", "i'd", "i'll", "i'm",
+    "i've", "if", "in", "into", "is", "isn't", "it", "it's", "its", "itself", "let's", "me", "more", "most", "mustn't",
+    "my", "myself", "no", "nor", "not", "of", "off", "on", "once", "only", "or", "other", "ought", "our", "ours",
+    "ourselves", "out", "over", "own", "same", "shan't", "she", "she'd", "she'll", "she's", "should", "shouldn't",
+    "so", "some", "such", "than", "that", "that's", "the", "their", "theirs", "them", "themselves", "then", "there",
+    "there's", "these", "they", "they'd", "they'll", "they're", "they've", "this", "those", "through", "to", "too",
+    "under", "until", "up", "very", "was", "wasn't", "we", "we'd", "we'll", "we're", "we've", "were", "weren't",
+    "what", "what's", "when", "when's", "where", "where's", "which", "while", "who", "who's", "whom", "why", "why's",
+    "with", "won't", "would", "wouldn't", "you", "you'd", "you'll", "you're", "you've", "your", "yours", "yourself",
+    "yourselves"
+}
+
 
 def tokenize(text: str) -> List[str]:
     """
-    Tokenizes text by lowercasing and finding all alphanumeric words.
+    Tokenizes text by lowercasing, finding alphanumeric words, and filtering stop-words.
     """
-    return re.findall(r'\b\w+\b', text.lower())
+    words = re.findall(r'\b\w+\b', text.lower())
+    return [w for w in words if w not in STOP_WORDS]
 
 
 class BM25Searcher:
@@ -137,27 +156,48 @@ def get_searcher() -> BM25Searcher:
             if current_essay["paragraphs"]:
                 essays.append(current_essay)
                 
-            # Chunk essays into ~1200 character chunks
+            # Sliding window paragraph chunking with overlap & title enrichment
             for essay in essays:
-                current_chunk = []
-                current_len = 0
-                for paragraph in essay["paragraphs"]:
-                    current_chunk.append(paragraph)
-                    current_len += len(paragraph)
-                    if current_len >= 1200:
-                        corpus.append({
-                            "essay_title": essay["title"],
-                            "source_file": filename,
-                            "content": "\n\n".join(current_chunk)
-                        })
-                        current_chunk = []
-                        current_len = 0
-                if current_chunk:
+                paragraphs = essay["paragraphs"]
+                if not paragraphs:
+                    continue
+                
+                i = 0
+                n = len(paragraphs)
+                while i < n:
+                    chunk_paragraphs = []
+                    current_len = 0
+                    j = i
+                    while j < n and current_len < 1200:
+                        chunk_paragraphs.append(paragraphs[j])
+                        current_len += len(paragraphs[j])
+                        j += 1
+                        
+                    # Title enrichment: prepend the essay title for maximum keyword match relevance
+                    content = f"Essay Title: {essay['title']}\n\n" + "\n\n".join(chunk_paragraphs)
+                    
                     corpus.append({
                         "essay_title": essay["title"],
                         "source_file": filename,
-                        "content": "\n\n".join(current_chunk)
+                        "content": content
                     })
+                    
+                    if j >= n:
+                        break
+                        
+                    # Calculate paragraph overlap index (up to ~250 chars)
+                    overlap_len = 0
+                    step_back = 0
+                    for k in range(j - 1, i, -1):
+                        overlap_len += len(paragraphs[k])
+                        if overlap_len > 250:
+                            break
+                        step_back += 1
+                        
+                    if step_back > 0:
+                        i = j - step_back
+                    else:
+                        i = j
         except Exception as e:
             logger.error(f"Error parsing .docx file {filename}: {e}", exc_info=True)
             
